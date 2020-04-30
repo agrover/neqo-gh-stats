@@ -1,5 +1,5 @@
 [package]
-name = "stats"
+name = "neqo-gh-stats"
 version = "0.1.0"
 authors = ["Andy Grover <agrover@redhat.com>"]
 edition = "2018"
@@ -10,3 +10,4 @@ edition = "2018"
 github-stats = "0.2.0"
 serde_json = "1.0.52"
 chrono = "0.4.11"
+structopt = "0.3.14"

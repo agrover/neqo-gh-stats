@@ -1,27 +1,54 @@
+use std::convert::TryInto;
+use std::process::exit;
+
 use chrono::prelude::*;
 use chrono::{DateTime, Duration};
 use github_stats::{Query, Search};
 use serde_json::value::Value;
+use structopt::StructOpt;
+
+#[derive(Debug, StructOpt)]
+#[structopt(name = "neqo-gh-stats", about = "Stats on activity of Neqo project")]
+struct Args {
+    #[structopt(short = "d", long, default_value = "14")]
+    /// Days of previous activity to summarize
+    days: u16,
+}
 
 fn get_all_items(mut search: Search) -> Vec<Value> {
     let mut items = Vec::new();
-    let mut results = search.search().unwrap();
+    let mut results = match search.search() {
+        Err(_) => {
+            eprintln!("Search failed. Rate limited? Try again later");
+            exit(1);
+        }
+        Ok(x) => x,
+    };
+
     let mut remaining_results = results.total_count();
-    println!("results = {}", remaining_results);
     while remaining_results > 0 {
         for item in results.items() {
             items.push(item.clone());
             remaining_results -= 1;
         }
         search.next_page();
-        results = search.search().unwrap();
+        results = match search.search() {
+            Err(_) => {
+                eprintln!("subpage query failed (ratelimited?); incomplete results");
+                break;
+            }
+            Ok(x) => x,
+        };
     }
     items
 }
 
 fn main() {
+    let args = Args::from_args();
+    let days = args.days.try_into().unwrap();
+
     let now = Utc::now();
-    let past = now - Duration::days(14);
+    let past = now - Duration::days(days);
 
     // Gets latest merged PR
     let search = Search::issues(&Query::new().repo("mozilla", "neqo").is("issue")).per_page(100);
@@ -40,7 +67,7 @@ fn main() {
             }
         }
     }
-    println!("Issues opened in past 2 weeks: {}", opened);
+    println!("Issues opened in past {} days: {}", days, opened);
 
     // Issues closed
     let mut closed = 0;
@@ -54,7 +81,7 @@ fn main() {
             }
         }
     }
-    println!("Issues closed in past 2 weeks: {}", closed);
+    println!("Issues closed in past {} days: {}", days, closed);
 
     // PRs merged
     let search =
@@ -74,5 +101,5 @@ fn main() {
             }
         }
     }
-    println!("PRs merged in past 2 weeks: {}", merged);
+    println!("PRs merged in past {} days: {}", days, merged);
 }
