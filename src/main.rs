@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::convert::TryInto;
 use std::process::exit;
 
@@ -13,6 +14,9 @@ struct Args {
     #[structopt(short = "d", long, default_value = "14")]
     /// Days of previous activity to summarize
     days: u16,
+
+    #[structopt(short = "v", long)]
+    verbose: bool,
 }
 
 fn get_all_items(mut search: Search) -> Vec<Value> {
@@ -25,7 +29,8 @@ fn get_all_items(mut search: Search) -> Vec<Value> {
         Ok(x) => x,
     };
 
-    let mut remaining_results = results.total_count();
+    //let mut remaining_results = results.total_count();
+    let mut remaining_results = min(results.total_count(), 100);
     while remaining_results > 0 {
         for item in results.items() {
             items.push(item.clone());
@@ -43,6 +48,36 @@ fn get_all_items(mut search: Search) -> Vec<Value> {
     items
 }
 
+// prints stuff and returns how many things
+fn print_things(
+    args: &Args,
+    things: &[Value],
+    after: &DateTime<Utc>,
+    date_field_filter: &str,
+) -> usize {
+    let mut matching = 0;
+    for item in things {
+        if let Some(date_item) = item.get(date_field_filter) {
+            if date_item.is_string() {
+                let date_item = DateTime::parse_from_rfc3339(date_item.as_str().unwrap()).unwrap();
+                if date_item > *after {
+                    matching += 1;
+
+                    if args.verbose {
+                        println!(
+                            "* [{}]({})",
+                            item.get("title").unwrap().as_str().unwrap(),
+                            item.get("html_url").unwrap().as_str().unwrap()
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    matching
+}
+
 fn main() {
     let args = Args::from_args();
     let days = args.days.try_into().unwrap();
@@ -50,56 +85,21 @@ fn main() {
     let now = Utc::now();
     let past = now - Duration::days(days);
 
-    // Gets latest merged PR
+    // Issues created/closed
     let search = Search::issues(&Query::new().repo("mozilla", "neqo").is("issue")).per_page(100);
 
     let issues = get_all_items(search);
 
-    // Issues opened
-    let mut opened = 0;
-    for item in &issues {
-        if let Some(opened_at) = item.get("created_at") {
-            if opened_at.is_string() {
-                let opened_at = DateTime::parse_from_rfc3339(opened_at.as_str().unwrap()).unwrap();
-                if opened_at > past {
-                    opened += 1;
-                }
-            }
-        }
-    }
-    println!("Issues opened in past {} days: {}", days, opened);
+    let found = print_things(&args, &issues, &past, "created_at");
+    println!("Issues opened in past {} days: {}", days, found);
 
-    // Issues closed
-    let mut closed = 0;
-    for item in &issues {
-        if let Some(closed_at) = item.get("closed_at") {
-            if closed_at.is_string() {
-                let closed_at = DateTime::parse_from_rfc3339(closed_at.as_str().unwrap()).unwrap();
-                if closed_at > past {
-                    closed += 1;
-                }
-            }
-        }
-    }
-    println!("Issues closed in past {} days: {}", days, closed);
+    let found = print_things(&args, &issues, &past, "closed_at");
+    println!("Issues closed in past {} days: {}", days, found);
 
     // PRs merged
     let search =
         Search::issues(&Query::new().repo("mozilla", "neqo").is("pr").is("merged")).per_page(100);
-
     let prs = get_all_items(search);
-
-    // Issues merged
-    let mut merged = 0;
-    for item in &prs {
-        if let Some(merged_at) = item.get("closed_at") {
-            if merged_at.is_string() {
-                let merged_at = DateTime::parse_from_rfc3339(merged_at.as_str().unwrap()).unwrap();
-                if merged_at > past {
-                    merged += 1;
-                }
-            }
-        }
-    }
-    println!("PRs merged in past {} days: {}", days, merged);
+    let found = print_things(&args, &prs, &past, "closed_at");
+    println!("PRs merged in past {} days: {}", days, found);
 }
